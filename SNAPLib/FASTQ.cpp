@@ -89,7 +89,7 @@ FASTQReader::init(
     fileName = i_fileName;
     return data->init(fileName);
 }
-    
+
 
     void
 FASTQReader::reinit(
@@ -123,7 +123,7 @@ FASTQReader::skipPartialRecord(DataReader *data)
     //
     // Just assume that a single FASTQ read is smaller than our buffer, so we won't exceed the buffer here.
     // Look for the pattern '{0|\n}@*\n{A|T|C|G|N}*\n+'  That is, either the beginning of the buffer or a
-    // newline, followed by an '@' and some text, another newline followed by a list of bases and a newline, 
+    // newline, followed by an '@' and some text, another newline followed by a list of bases and a newline,
     // and then a plus.
     //
     char* buffer;
@@ -137,7 +137,7 @@ FASTQReader::skipPartialRecord(DataReader *data)
 
     for (;;) {
         if (firstLineCandidate - buffer >= validBytes) {
-            // This happens for very small files.  
+            // This happens for very small files.
             return false;
         }
 
@@ -158,8 +158,8 @@ FASTQReader::skipPartialRecord(DataReader *data)
         //
         char *thirdLineCandidate = secondLineCandidate;
         while (*thirdLineCandidate == 'A' || *thirdLineCandidate == 'C' || *thirdLineCandidate == 'T' || *thirdLineCandidate == 'G' ||
-                *thirdLineCandidate == 'N' || *thirdLineCandidate == 'a' || *thirdLineCandidate == 'c' || *thirdLineCandidate == 't' || 
-                *thirdLineCandidate == 'g') {
+                *thirdLineCandidate == 'N' || *thirdLineCandidate == 'a' || *thirdLineCandidate == 'c' || *thirdLineCandidate == 't' ||
+                *thirdLineCandidate == 'g' || *thirdLineCandidate == 'n') {
             thirdLineCandidate++;
         }
 
@@ -197,7 +197,7 @@ FASTQReader::skipPartialRecord(DataReader *data)
 // Returns 0 if the parse failed or the first position past the read if it succeeds. In
 // addition, if exitOnFailure is set, print a warning and exit if there is a parse error.
 // (The one time we don't set this is when trying to find the first read in a chunk.)
-// 
+//
     bool
 FASTQReader::getNextRead(Read *readToUpdate)
 {
@@ -213,7 +213,7 @@ FASTQReader::getNextRead(Read *readToUpdate)
             return false;
         }
     }
-    
+
     _int64 bytesConsumed = getReadFromBuffer(buffer, validBytes, readToUpdate, fileName, data, context);
     if (bytesConsumed == 0) {
         return false;
@@ -307,9 +307,9 @@ FASTQReader::_init::_init()
 
     //
     // The second line is the read itself and must start with a base or an
-    // 'N' in either case.  A . is just a different way to encode an N.
+    // 'N' in either case.
     //
-    for (const char*p = "ACTGNURYKMSWBDHVNX."; *p; p++) {
+    for (const char*p = "ACTGNURYKMSWBDHVNX"; *p; p++) {
         isValidStartingCharacterForNextLine[0][*p] = true;
         isValidStartingCharacterForNextLine[0][tolower(*p)] = true;
     }
@@ -343,7 +343,7 @@ PairedInterleavedFASTQReader::PairedInterleavedFASTQReader(
 {
 }
 
-    PairedInterleavedFASTQReader* 
+    PairedInterleavedFASTQReader*
 PairedInterleavedFASTQReader::create(DataSupplier* supplier, const char *fileName, int bufferCount, _int64 startingOffset, _int64 amountOfFileToProcess,
                                         const ReaderContext& context)
 {
@@ -358,14 +358,14 @@ PairedInterleavedFASTQReader::create(DataSupplier* supplier, const char *fileNam
 }
 
 
-        bool 
+        bool
 PairedInterleavedFASTQReader::init(const char* i_fileName)
 {
     fileName = i_fileName;
     return data->init(fileName);
 }
 
-        bool 
+        bool
 PairedInterleavedFASTQReader::getNextReadPair(Read *read0, Read *read1)
 {
    //
@@ -380,7 +380,7 @@ PairedInterleavedFASTQReader::getNextReadPair(Read *read0, Read *read1)
             return false;
         }
     }
-    
+
     _int64 bytesConsumed = FASTQReader::getReadFromBuffer(buffer, validBytes, read0, fileName, data, context);
     if (bytesConsumed == validBytes) {
         WriteErrorMessage("Input file seems to have an odd number of reads.  Ignoring the last one.");
@@ -405,7 +405,7 @@ PairedInterleavedFASTQReader::getNextReadPair(Read *read0, Read *read1)
     return true;
 }
 
-    void 
+    void
 PairedInterleavedFASTQReader::reinit(_int64 startingOffset, _int64 amountOfFileToProcess)
 {
     data->reinit(startingOffset, amountOfFileToProcess);
@@ -488,7 +488,7 @@ FASTQWriter::writeRead(Read *read)
     }
 
     size_t bytesUsed = snprintf(buffer + bufferOffset, bufferSize - bufferOffset, "@%.*s\n%.*s\n+\n%.*s\n", read->getIdLength(), read->getId(), read->getDataLength(), read->getData(), read->getDataLength(), read->getQuality());
- 
+
     bufferOffset += bytesUsed;
     return true;
 }
@@ -531,7 +531,7 @@ PairedFASTQReader::create(
 PairedFASTQReader::getNextReadPair(Read *read0, Read *read1)
 {
     bool worked = readers[0]->getNextRead(read0);
- 
+
     if (readers[1]->getNextRead(read1) != worked) {
         WriteErrorMessage("PairedFASTQReader: reads of both ends responded differently.  The FASTQ files may not match properly.\n");
         soft_exit(1);
@@ -574,8 +574,8 @@ PairedFASTQReader::createPairedReadSupplierGenerator(
                 }
             }
         }
-        
-        
+
+
         int bufferCount = ReadSupplierQueue::BufferCount(numThreads);
         ReadReader *reader1 = FASTQReader::create(dataSupplier[0], fileName0, bufferCount, 0, fileSize[0],context);
         ReadReader *reader2 = FASTQReader::create(dataSupplier[1], fileName1, bufferCount, 0, fileSize[1],context);
@@ -584,7 +584,7 @@ PairedFASTQReader::createPairedReadSupplierGenerator(
             delete reader2;
             return NULL;
         }
-        ReadSupplierQueue *queue = new ReadSupplierQueue(reader1,reader2); 
+        ReadSupplierQueue *queue = new ReadSupplierQueue(reader1,reader2);
         queue->startReaders();
         return queue;
     } else {
@@ -629,7 +629,7 @@ FASTQReader::createReadSupplierGenerator(
         return queue;
     }
 }
-    
+
         PairedReadSupplierGenerator *
 PairedInterleavedFASTQReader::createPairedReadSupplierGenerator(
     const char *fileName,
@@ -638,7 +638,7 @@ PairedInterleavedFASTQReader::createPairedReadSupplierGenerator(
     bool gzip)
 {
      bool isStdin = !strcmp(fileName,"-");
- 
+
      if (gzip || isStdin) {
         //WriteStatusMessage("PairedInterleavedFASTQ using supplier queue\n");
         DataSupplier *dataSupplier;
@@ -651,15 +651,15 @@ PairedInterleavedFASTQReader::createPairedReadSupplierGenerator(
         } else {
             dataSupplier = DataSupplier::GzipDefault;
         }
-        
+
         PairedReadReader *reader = PairedInterleavedFASTQReader::create(dataSupplier, fileName,
             ReadSupplierQueue::BufferCount(numThreads), 0,(stdin ? 0 : QueryFileSize(fileName)),context);
- 
+
         if (NULL == reader ) {
             delete reader;
             return NULL;
         }
-        ReadSupplierQueue *queue = new ReadSupplierQueue(reader); 
+        ReadSupplierQueue *queue = new ReadSupplierQueue(reader);
         queue->startReaders();
         return queue;
     } else {
