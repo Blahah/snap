@@ -335,7 +335,7 @@ SortedDataFilterSupplier::mergeSort()
     }
     for (SortBlockVector::iterator i = blocks.begin(); i != blocks.end(); i++) {
         i->reader = readerSupplier->getDataReader(1, MAX_READ_LENGTH * 8, 0.0,
-            min(1UL << 23, max(1UL << 17, bufferSpace / blocks.size()))); // 128kB to 8MB buffer space per block
+	min<unsigned long long>(1UL << 23, max<unsigned long long>(1UL << 17, bufferSpace / blocks.size()))); // 128kB to 8MB buffer space per block
         i->reader->init(tempFileName);
         i->reader->reinit(i->start, i->bytes);
     }
