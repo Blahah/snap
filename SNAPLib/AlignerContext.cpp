@@ -81,19 +81,19 @@ void AlignerContext::runAlignment(int argc, const char **argv, const char *versi
 #ifdef _MSC_VER
 	useTimingBarrier = options->useTimingBarrier;
 #endif
-	
+
 	if (!initialize()) {
 		return;
 	}
     extension->initialize();
-    
+
     if (! extension->skipAlignment()) {
         WriteStatusMessage("Aligning.\n");
 
         beginIteration();
 
         runTask();
-            
+
         finishIteration();
 
         printStats();
@@ -126,7 +126,7 @@ AlignerContext::runThread()
     }
     extension->finishThread();
 }
-    
+
     void
 AlignerContext::finishThread(AlignerContext* common)
 {
@@ -149,7 +149,7 @@ AlignerContext::initialize()
 
         if (strcmp(options->indexDir, "-") != 0) {
             WriteStatusMessage("Loading index from directory... ");
- 
+
             fflush(stdout);
             _int64 loadStart = timeInMillis();
             index = GenomeIndex::loadFromDirectory((char*) options->indexDir, options->mapIndex, options->prefetchIndex);
@@ -223,7 +223,7 @@ AlignerContext::beginIteration()
     stats = newStats();
     stats->extra = extension->extraStats();
     extension->beginIteration();
-    
+
     memset(&readerContext, 0, sizeof(readerContext));
     readerContext.clipping = options->clipping;
     readerContext.defaultReadGroup = options->defaultReadGroup;
@@ -382,15 +382,15 @@ AlignerContext::printStats()
     _int64 totalTime = stats->millisReading + stats->millisAligning + stats->millisWriting;
 
     /*
-                         total                                   
-                         |  single                       
-                         |  |  multi                                      
-                         |  |  |  unaligned        reads/s            
-                         |  |  |  |  too short     |  time             
-                         |  |  |  |  |  filtered   |  | %Read       
-                         |  |  |  |  |  | extra    |  | | %Align    
-                         |  |  |  |  |  | | pairs  |  | | | %Write 
-                         |  |  |  |  |  | | |      |  | | | |  
+                         total
+                         |  single
+                         |  |  multi
+                         |  |  |  unaligned        reads/s
+                         |  |  |  |  too short     |  time
+                         |  |  |  |  |  filtered   |  | %Read
+                         |  |  |  |  |  | extra    |  | | %Align
+                         |  |  |  |  |  | | pairs  |  | | | %Write
+                         |  |  |  |  |  | | |      |  | | | |
                          v  v  v  v  v  v v v      v  v v v v
     */
     WriteStatusMessage("%s %s %s %s %s %s%s%s   %-9s %s%s%s%s\n",
@@ -402,7 +402,7 @@ AlignerContext::printStats()
         (stats->filtered > 0) ? numPctAndPad(filtered, stats->filtered, 100.0 * stats->filtered / stats->totalReads, 23, strBufLen) : "",
         (stats->extraAlignments > 0) ? FormatUIntWithCommas(stats->extraAlignments, extraAlignments, strBufLen, 18) : "",
 		isPaired() ? pctAndPad(pctPairs,  100.0 * stats->alignedAsPairs / stats->totalReads, 7, strBufLen, true) : "",
-		FormatUIntWithCommas((unsigned _int64)(1000 * stats->totalReads / max(alignTime, (_int64)1)), readsPerSecond, strBufLen),	// Aligntime is in ms
+		FormatUIntWithCommas((unsigned long long)(1000 * stats->totalReads / max(alignTime, (_int64)1)), readsPerSecond, strBufLen),
 		FormatUIntWithCommas((alignTime + 500) / 1000, alignTimeString, strBufLen, 20),
         options->profile ? pctAndPad(pctRead, (double)stats->millisReading / (double)totalTime, 5, strBufLen, false) : "",
         options->profile ? pctAndPad(pctAlign, (double)stats->millisAligning / (double)totalTime, 6, strBufLen, false) : "",
@@ -411,7 +411,7 @@ AlignerContext::printStats()
 
     if (NULL != perfFile) {
         fprintf(perfFile, "%d\t%d\t%0.2f%%\t%0.2f%%\t%0.2f%%\t%0.2f%%\t%0.2f%%\t%lld\t%lld\tt%.0f\n",
-                maxHits_, maxDist_, 
+                maxHits_, maxDist_,
                 100.0 * (stats->totalReads - stats->uselessReads) / max(stats->totalReads, (_int64) 1),
 				100.0 * stats->singleHits / stats->totalReads,
 				100.0 * stats->multiHits / stats->totalReads,

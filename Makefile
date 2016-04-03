@@ -25,7 +25,7 @@ ifeq ($(UNAME), Darwin)
   LIBS += -lz
 endif
 
-CXX = g++-4.9
+CXX = g++
 
 LIB_SRC = $(wildcard SNAPLib/*.cpp)
 LIB_OBJ = $(patsubst %.cpp, %.o, $(LIB_SRC))
@@ -51,7 +51,7 @@ default: $(EXES)
 -include $(pathsubst %.o, %.d, $(ALL_OBJ))
 
 $(OBJS): %.o : %.cpp
-	$(CXX) -o $@ $(CXXFLAGS) -c $< 
+	$(CXX) -o $@ $(CXXFLAGS) -c $<
 
 snap-aligner: $(LIB_OBJ) $(SNAP_OBJ)
 	$(CXX) -o $@ $(CXXFLAGS) -Itests $(LDFLAGS) $^ $(LIBS)
