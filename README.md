@@ -15,13 +15,22 @@ additional documentation at <http://snap.cs.berkeley.edu>.
 
 ## Building
 
-SNAP runs on Windows, Linux and Mac OS X.
+Requirements:
 
-For Windows, we provide a Visual C++ project, `snap.sln`. Requirements:
-- Visual Studio 2012 (11.0)
-
-For Linux and OS X, simply type `make`. Requirements:
 - g++ version 4.6
 - zlib 1.2.8 from http://zlib.net/
 
 
+## Building for linux from OSX with holy build box
+
+```bash
+docker run -t -i --rm \
+  -v `pwd`:/io \
+  phusion/holy-build-box-64:latest \
+  /hbb_exe/activate-exec \
+  bash -x -c 'cd /io && make'
+```
+
+## Building for OSX
+
+works best with clang - make sure to use the `osx` branch which has some osx-specific build fixes
