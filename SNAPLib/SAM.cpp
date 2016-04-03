@@ -185,11 +185,21 @@ SAMReader::parseHeader(
     const Genome *genome, 
     _int64 *o_headerSize,
     bool *o_headerMatchesIndex,
-	bool *o_sawWholeHeader)
+	bool *o_sawWholeHeader,
+    int *o_n_ref,
+    GenomeLocation **o_ref_locations)
 {
+    _ASSERT((NULL == o_n_ref) == (NULL == o_ref_locations));    // both or neither are NULL, not one of each
+
     char *nextLineToProcess = firstLine;
     *o_headerMatchesIndex = true;
     int numSQLines = 0;
+    int n_ref_slots = 4096;
+    GenomeLocation *ref_locations = NULL;
+    if (NULL != o_ref_locations) {
+        ref_locations = (GenomeLocation *)BigAlloc(sizeof(GenomeLocation)* n_ref_slots);
+    }
+
     while (NULL != nextLineToProcess && nextLineToProcess < endOfBuffer && '@' == *nextLineToProcess) {
 		//
 		// Make sure we have the complete line.
@@ -218,7 +228,6 @@ SAMReader::parseHeader(
             //
             // Verify that they actually match what's in our reference genome.
             //
-            numSQLines++;
             if (nextLineToProcess + 3 >= endOfBuffer || ' ' != nextLineToProcess[3] && '\t' != nextLineToProcess[3]) {
                 WriteErrorMessage("Malformed SAM file '%s' has @SQ without a following space or tab.\n",fileName);
                 return false;
@@ -256,12 +265,49 @@ SAMReader::parseHeader(
             }
             contigName[contigNameBufferSize - 1] = '\0';
 
-            if (genome == NULL || !genome->getLocationOfContig(contigName, NULL)) {
+            GenomeLocation contigBase = InvalidGenomeLocation;
+            if (NULL != genome) {
+                if (!genome->getLocationOfContig(contigName, &contigBase)) {
+                    //
+                    // Try stripping off the leading "chr" if it has one.
+                    //
+                    if (strlen(contigName) < 3 || contigName[0] != 'c' || contigName[1] != 'h' || contigName[2] != 'r' || !genome->getLocationOfContig(contigName + 3, &contigBase)) {
+                        //
+                        // Change chrM into MT
+                        //
+                        if (strlen(contigName) != 4 || contigName[0] != 'c' || contigName[1] != 'h' || contigName[2] != 'r' || contigName[3] != 'M' || !genome->getLocationOfContig("MT", &contigBase)) {
+                            //
+                            // Try prefixing chr to short names.
+                            //
+                            const size_t maxShortNameSize = 2;
+                            char prefixedName[maxShortNameSize + 4];
+                            if (strlen(contigName) <= maxShortNameSize) {
+                                sprintf(prefixedName, "chr%s", contigName);
+                                genome->getLocationOfContig(prefixedName, &contigBase);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (InvalidGenomeLocation == contigBase) {
                 *o_headerMatchesIndex = false;
             }
 
+            if (NULL != o_ref_locations) {
+                if (numSQLines >= n_ref_slots) {
+                    GenomeLocation *new_ref_locations = (GenomeLocation *)BigAlloc(sizeof(GenomeLocation)* n_ref_slots * 2);
+                    memcpy(new_ref_locations, ref_locations, sizeof(GenomeLocation)* n_ref_slots);
+                    BigDealloc(ref_locations);
+                    ref_locations = new_ref_locations;
+                    n_ref_slots *= 2;
+                }
+                ref_locations[numSQLines] = contigBase;
+            }
+
+            numSQLines++;
             delete[] contigName;
-        } else if (!strncmp("@HD",nextLineToProcess,3) || !strncmp("@RG",nextLineToProcess,3) || !strncmp("@PG",nextLineToProcess,3) ||
+        } else if (!strncmp("@HD", nextLineToProcess, 3) || !strncmp("@RG", nextLineToProcess, 3) || !strncmp("@PG", nextLineToProcess, 3) ||
             !strncmp("@CO",nextLineToProcess,3)) {
             //
             // Ignore these lines.
@@ -285,6 +331,12 @@ SAMReader::parseHeader(
 	if (NULL != o_sawWholeHeader) {
 		*o_sawWholeHeader = nextLineToProcess < endOfBuffer;
 	}
+
+    if (NULL != o_ref_locations) {
+        *o_n_ref = numSQLines;
+        *o_ref_locations = ref_locations;
+    }
+
     return true;
 }
 
@@ -375,7 +427,13 @@ SAMReader::getReadFromLine(
         }
     }
 
-    GenomeLocation genomeLocation = parseLocation(locationOfContig, field, fieldLength);
+    GenomeLocation genomeLocation;
+    
+    if (InvalidGenomeLocation != locationOfContig) {
+        genomeLocation = parseLocation(locationOfContig, field, fieldLength);
+    } else {
+        genomeLocation = InvalidGenomeLocation;
+    }
 
     if (NULL != out_genomeLocation) {
         *out_genomeLocation = genomeLocation;
@@ -492,7 +550,7 @@ SAMReader::parseContigName(
     memcpy(contigName,field[rfield],fieldLength[rfield]);
     contigName[fieldLength[rfield]] = '\0';
 
-    *o_locationOfContig = 0;
+    *o_locationOfContig = InvalidGenomeLocation;
     if ('*' != contigName[0] && genome != NULL && !genome->getLocationOfContig(contigName, o_locationOfContig, o_indexOfContig)) {
         //WriteErrorMessage("Unable to find contig '%s' in genome.  SAM file malformed.\n",contigName);
         //soft_exit(1);
@@ -873,17 +931,12 @@ SAMFormat::getWriterSupplier(
 {
     DataWriterSupplier* dataSupplier;
     if (options->sortOutput) {
-        size_t len = strlen(options->outputFile.fileName);
-        // todo: this is going to leak, but there's no easy way to free it, and it's small...
-        char* tempFileName = (char*) malloc(5 + len);
-        strcpy(tempFileName, options->outputFile.fileName);
-        strcpy(tempFileName + len, ".tmp");
-        dataSupplier = DataWriterSupplier::sorted(this, genome, tempFileName, options->sortMemory * (1ULL << 30),
+        dataSupplier = DataWriterSupplier::sorted(this, genome, DataWriterSupplier::generateSortIntermediateFilePathName(options), options->sortMemory * (1ULL << 30),
             options->numThreads, options->outputFile.fileName, NULL, options->writeBufferSize);
     } else {
         dataSupplier = DataWriterSupplier::create(options->outputFile.fileName, options->writeBufferSize);
     }
-    return ReadWriterSupplier::create(this, dataSupplier, genome);
+    return ReadWriterSupplier::create(this, dataSupplier, genome, options->killIfTooSlow);
 }
 
     bool

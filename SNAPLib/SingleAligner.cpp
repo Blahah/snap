@@ -94,6 +94,7 @@ SingleAlignerContext::runIterationThread()
             } else {
                 stats->filtered++;
             }
+            extension->writeRead(read, &result);
         }
         delete supplier;
         return;
@@ -110,7 +111,7 @@ SingleAlignerContext::runIterationThread()
     }
     size_t alignmentResultBufferSize = sizeof(*alignmentResults) * (alignmentResultBufferCount + 1); // +1 is for primary result
  
-    BigAllocator *allocator = new BigAllocator(BaseAligner::getBigAllocatorReservation(index, true, maxHits, maxReadSize, index->getSeedLength(), numSeedsFromCommandLine, seedCoverage, maxSecondaryAlignmentsPerContig) 
+    BigAllocator *allocator = new BigAllocator(BaseAligner::getBigAllocatorReservation(index, true, maxHits, maxReadSize, index->getSeedLength(), numSeedsFromCommandLine, seedCoverage, maxSecondaryAlignmentsPerContig, extraSearchDepth) 
         + alignmentResultBufferSize);
    
     BaseAligner *aligner = new (allocator) BaseAligner(
@@ -153,7 +154,14 @@ SingleAlignerContext::runIterationThread()
     _uint64 lastReportTime = timeInMillis();
     _uint64 readsWhenLastReported = 0;
 
+    _int64 startTime = timeInMillis();
     while (NULL != (read = supplier->getNextRead())) {
+        _int64 readFinishedTime;
+        if (options->profile) {
+            readFinishedTime = timeInMillis();
+            stats->millisReading += (readFinishedTime - startTime);
+        }
+
         stats->totalReads++;
 
         if (AlignerOptions::useHadoopErrorMessages && stats->totalReads % 10000 == 0 && timeInMillis() - lastReportTime > 10000) {
@@ -198,6 +206,12 @@ SingleAlignerContext::runIterationThread()
         aligner->setMaxK(oldMaxK);
 #endif
 
+        _int64 alignFinishedTime;
+        if (options->profile) {
+            alignFinishedTime = timeInMillis();
+            stats->millisAligning += (alignFinishedTime - readFinishedTime);            
+        }
+
 #if     TIME_HISTOGRAM
         _int64 runTime = timeInNanos() - startTime;
         int timeBucket = min(30, cheezyLogBase2(runTime));
@@ -235,13 +249,16 @@ SingleAlignerContext::runIterationThread()
 
         }
 
+        if (options->profile) {
+            startTime = timeInMillis();
+            stats->millisWriting = (startTime - alignFinishedTime);
+        }
+
         if (containsPrimary) {
             updateStats(stats, read, alignmentResults[0].status, alignmentResults[0].score, alignmentResults[0].mapq);
         } else {
             stats->filtered++;
         }
-
-
     }
 
     aligner->~BaseAligner(); // This calls the destructor without calling operator delete, allocator owns the memory.

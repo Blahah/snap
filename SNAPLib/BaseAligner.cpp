@@ -882,7 +882,6 @@ Return Value:
                     int tailStart = seedOffset + seedLen;
 
                     _ASSERT(!memcmp(data+seedOffset, readToScore->getData() + seedOffset, seedLen));
-
                     int textLen = (int)__min(genomeDataLength - tailStart, 0x7ffffff0);
                     score1 = landauVishkin->computeEditDistance(data + tailStart, textLen, readToScore->getData() + tailStart, readToScore->getQuality() + tailStart, readLen - tailStart,
                         scoreLimit, &matchProb1);
@@ -907,7 +906,7 @@ Return Value:
                             //
                             // Adjust the genome location based on any indels that we found.
                             //
-                            genomeLocation += genomeLocationOffset;
+                           genomeLocation += genomeLocationOffset;
 
                             //
                             // We could mark as scored anything in between the old and new genome offsets, but it's probably not worth the effort since this is
@@ -1437,7 +1436,7 @@ BaseAligner::incrementWeight(HashTableElement *element)
 
     size_t
 BaseAligner::getBigAllocatorReservation(GenomeIndex *index, bool ownLandauVishkin, unsigned maxHitsToConsider, unsigned maxReadSize,
-                unsigned seedLen, unsigned numSeedsFromCommandLine, double seedCoverage, int maxSecondaryAlignmentsPerContig)
+                unsigned seedLen, unsigned numSeedsFromCommandLine, double seedCoverage, int maxSecondaryAlignmentsPerContig, unsigned extraSearchDepth)
 {
     unsigned maxSeedsToUse;
     if (0 != numSeedsFromCommandLine) {
@@ -1466,7 +1465,8 @@ BaseAligner::getBigAllocatorReservation(GenomeIndex *index, bool ownLandauVishki
         sizeof(BYTE) * (maxReadSize + 7 + 128) / 8                      + // seed used
         sizeof(HashTableElement) * hashTableElementPoolSize             + // hash table element pool
         sizeof(HashTableAnchor) * candidateHashTablesSize * 2           + // candidate hash table (both)
-        sizeof(HashTableElement) * (maxSeedsToUse + 1);                   // weight lists
+        sizeof(HashTableElement) * (maxSeedsToUse + 1)                  + // weight lists
+        sizeof(unsigned) * extraSearchDepth;                              // hitCountByExtraSearchDepth
 }
 
     void 

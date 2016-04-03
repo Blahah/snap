@@ -76,7 +76,11 @@ AlignerOptions::AlignerOptions(
     maxDistFraction(0.0),
 	mapIndex(false),
 	prefetchIndex(false),
-    writeBufferSize(16 * 1024 * 1024)
+    writeBufferSize(16 * 1024 * 1024),
+    dropIndexBeforeSort(false),
+    killIfTooSlow(false),
+    sortIntermediateDirectory(NULL),
+    profile(false)
 {
     if (forPairedEnd) {
         maxDist                 = 15;
@@ -187,6 +191,16 @@ AlignerOptions::usageMessage()
 		"  -nt  Don't truncate searches based on missed seed hits.  This option is purely for evaluating the performance effect\n"
 		"       of candidate truncation, and specifying it will slow down execution without improving alignments.\n"
         " -wbs  Write buffer size in megabytes.  Don't specify this unless you've gotten an error message saying to make it bigger.  Default 16.\n"
+        "  -di  Drop the index after aligning and before sorting.  This frees up memory for the sort at the expense of not having the index loaded for your next run.\n"
+        " -kts  Kill if too slow.  Monitor our progress and kill ourself if we're not moving fast enough.  This is intended for use on machines\n"
+        "       with limited memory, where some alignment tasks will push SNAP into paging, and take disproportinaltely long.  This allows the script\n"
+        "       to move on to the next alignment.  Only works when generating output, and not during the sort phase.  If you're running out of memory\n"
+        "       sorting, try using -di.\n"
+        " -sid  Specifies the sort intermediate directory.  When SNAP is sorting, it aligns the reads in the order in which they come in, and writes\n"
+        "       the aligned reads in batches to a temporary file.  When the aligning is done, it does a merge sort from the temporary file into the\n"
+        "       final output file.  By default, the intermediate file is in the same directory as the output file, but for performance or space\n"
+        "       reasons, you might want to put it elsewhere.  If so, use this option.\n"
+        " -pro  Profile alignment to give you an idea of how much time is spent aligning and how much waiting for IO\n"
 		,
             commandLine,
             maxDist,
@@ -319,6 +333,9 @@ AlignerOptions::parse(
         return true;
     } else if (strcmp(argv[n], "-P") == 0) {
         doAlignerPrefetch = false;
+        return true;
+    } else if (strcmp(argv[n], "-kts") == 0) {
+        killIfTooSlow = true;
         return true;
 	} else if (strcmp(argv[n], "-b") == 0) {
 		bindToProcessors = true;
@@ -474,7 +491,22 @@ AlignerOptions::parse(
         n++;
 
         return true;
-    } else if (strcmp(argv[n], "-mpc") == 0) {
+    } else if (strcmp(argv[n], "-sid") == 0) {
+        if (n + 1 >= argc) {
+            WriteErrorMessage("-sid requires an additional value\n");
+            return false;
+        }
+
+        if (argv[n + 1][0] == '-') {
+            WriteErrorMessage("The directory name after -sid must not start with a dash (it's just too confusing when compared with a command line switch)\n");
+            return false;
+        }
+
+        sortIntermediateDirectory = argv[n + 1];
+        n++;
+        return true;
+    }
+    else if (strcmp(argv[n], "-mpc") == 0) {
         if (n + 1 >= argc) {
             WriteErrorMessage("-mpc requires an additional value\n");
             return false;
@@ -522,7 +554,10 @@ AlignerOptions::parse(
 	} else if (strcmp(argv[n], "-pc") == 0) {
 		preserveClipping = true;
 		return true;
-	} else if (strcmp(argv[n], "-G") == 0) {
+    } else if (strcmp(argv[n], "-pro") == 0) {
+        profile = true;
+        return true;
+    } else if (strcmp(argv[n], "-G") == 0) {
         if (n + 1 < argc) {
             gapPenalty = atoi(argv[n+1]);
             if (gapPenalty < 1) {
@@ -719,7 +754,10 @@ AlignerOptions::parse(
 	} else if (strcmp(argv[n], "-nt") == 0) {
 		noTruncation = true;
 		return true;
-	} else if (strcmp(argv[n], "-D") == 0) {
+    } else if (strcmp(argv[n], "-di") == 0) {
+        dropIndexBeforeSort = true;
+        return true;
+    } else if (strcmp(argv[n], "-D") == 0) {
         if (n + 1 < argc) {
             extraSearchDepth = atoi(argv[n+1]);
             n++;

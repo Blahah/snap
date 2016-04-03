@@ -459,7 +459,14 @@ void PairedAlignerContext::runIterationThread()
     _uint64 lastReportTime = timeInMillis();
     _uint64 readsWhenLastReported = 0;
 
-    while (supplier->getNextReadPair(&reads[0], &reads[1])) {
+    _int64 startTime = timeInMillis();
+    while (supplier->getNextReadPair(&reads[0],&reads[1])) {
+        _int64 readFinishedTime;
+        if (options->profile) {
+            readFinishedTime = timeInMillis();
+            stats->millisReading += (readFinishedTime - startTime);
+        }
+
         // Check that the two IDs form a pair; they will usually be foo/1 and foo/2 for some foo.
         if (!ignoreMismatchedIDs) {
             Read::checkIdMatch(reads[0], reads[1]);
@@ -505,7 +512,6 @@ void PairedAlignerContext::runIterationThread()
         }
 
 
-
 #if     TIME_HISTOGRAM
         _int64 startTime = timeInNanos();
 #endif // TIME_HISTOGRAM
@@ -515,6 +521,12 @@ void PairedAlignerContext::runIterationThread()
 
         aligner->align(reads[0], reads[1], results, maxSecondaryAlignmentAdditionalEditDistance, maxPairedSecondaryHits, &nSecondaryResults, results + 1,
             maxSingleSecondaryHits, maxSecondaryAlignments, &nSingleSecondaryResults[0], &nSingleSecondaryResults[1], singleSecondaryResults);
+
+        _int64 alignFinishedTime;
+        if (options->profile) {
+            alignFinishedTime = timeInMillis();
+            stats->millisAligning += (alignFinishedTime - readFinishedTime);
+        }
 
 #if     TIME_HISTOGRAM
         _int64 runTime = timeInNanos() - startTime;
@@ -567,7 +579,13 @@ void PairedAlignerContext::runIterationThread()
             readWriter->writePairs(readerContext, reads, results, nSecondaryResults + 1, singleResults, nSingleSecondaryResults, firstIsPrimary);
         }
 
+        if (options->profile) {
+            startTime = timeInMillis();
+            stats->millisWriting += (startTime - alignFinishedTime);
+        }
+
         stats->extraAlignments += nSecondaryResults + (firstIsPrimary ? 0 : 1); // If first isn't primary, it's secondary.
+
         if (firstIsPrimary) {
             updateStats((PairedAlignerStats*)stats, reads[0], reads[1], &results[0], useful0, useful1);
         } else {

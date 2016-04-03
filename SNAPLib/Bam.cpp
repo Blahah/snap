@@ -39,12 +39,32 @@ using std::max;
 using std::min;
 using util::strnchr;
 
-BAMReader::BAMReader(const ReaderContext& i_context) : ReadReader(i_context)
+GenomeLocation 
+BAMAlignment::getLocation(const BAMReader * bamReader) const
+{
+    return bamReader == NULL || pos < 0 || refID < 0 || (FLAG & SAM_UNMAPPED)
+        ? InvalidGenomeLocation : (bamReader->getLocationForRefAndOffset(refID, pos));
+}
+
+GenomeLocation 
+BAMAlignment::getNextLocation(const BAMReader * bamReader) const
+{
+    return next_pos < 0 || next_refID < 0 || (FLAG & SAM_NEXT_UNMAPPED)
+        ? InvalidGenomeLocation : (bamReader->getLocationForRefAndOffset(next_refID, next_pos));
+}
+
+
+BAMReader::BAMReader(const ReaderContext& i_context) : ReadReader(i_context), refLocation(0), n_ref(0), data(NULL)
 {
 }
 
 BAMReader::~BAMReader()
 {
+    BigDealloc(refLocation);
+    refLocation = NULL;
+    if (NULL != data) {
+        delete data;
+    }
 }
 
     bool
@@ -151,7 +171,7 @@ BAMReader::readHeader(
 		_ASSERT(textHeaderSize == header->l_text);	// We got the same thing this time
 	}
 
-	if (!SAMReader::parseHeader(fileName, header->text(), header->text() + headerSize - sizeof(BAMHeader), context.genome, &textHeaderSize, &context.headerMatchesIndex, &sawWholeHeader)) {
+	if (!SAMReader::parseHeader(fileName, header->text(), header->text() + headerSize - sizeof(BAMHeader), context.genome, &textHeaderSize, &context.headerMatchesIndex, &sawWholeHeader, &n_ref, &refLocation)) {
 		WriteErrorMessage("BAMReader: failed to parse header on '%s'\n", fileName);
 		soft_exit(1);
 	}
@@ -161,7 +181,10 @@ BAMReader::readHeader(
 		soft_exit(1);
 	}
 
-	int n_ref = header->n_ref();
+    if (header->n_ref() != n_ref) { // We got the same value from the SAM header parser as is in the BAM header
+        WriteErrorMessage("Truncated or corrupt BAM file near offset %lld\n", data->getFileOffset());
+        soft_exit(1);
+    }
 	BAMHeaderRefSeq* refSeq = header->firstRefSeq();
 	for (int i = 0; i < n_ref; i++, refSeq = refSeq->next()) {
 		// just advance
@@ -279,7 +302,7 @@ char* o_sequence,
 const _uint8* nibbles,
 int bases)
 {
-    _uint16 *o_sequence_pairs = (_uint16 *)o_sequence;
+    _uint16 *o_sequence_pairs = (_uint16 *)&o_sequence[bases % 2];
     int pairs = bases / 2;
     for (int i = 0; i < pairs; i++) {
         o_sequence_pairs[pairs-i-1] = CodeToSeqPairRC[nibbles[i]];
@@ -523,7 +546,7 @@ BAMReader::getNextRead(
         }
         BAMAlignment* bam = (BAMAlignment*) buffer;
         if ((_uint64)bytes < sizeof(bam->block_size) || (_uint64)bytes < bam->size()) {
-			WriteErrorMessage("Insufficient buffer space for BAM file, increase -xf parameter\n");
+			WriteErrorMessage("Truncated or corrupt BAM file near offset %lld\n", data->getFileOffset());
             soft_exit(1);
         }
         data->advance(bam->size());
@@ -564,10 +587,13 @@ BAMReader::getReadFromLine(
 {
     _ASSERT(endOfBuffer - line >= sizeof(BAMHeader));
     BAMAlignment* bam = (BAMAlignment*) line;
-    _ASSERT((size_t)(endOfBuffer - line) >= bam->size());
+    if ((size_t)(endOfBuffer - line) < bam->size()) {
+        WriteErrorMessage("Truncated or corrupt BAM file near offset %lld\n", data->getFileOffset());
+        soft_exit(1);
+    }
     bam->validate();
 
-    GenomeLocation genomeLocation = bam->getLocation(genome);
+    GenomeLocation genomeLocation = bam->getLocation(this);
 
     if (NULL != out_genomeLocation) {
         _ASSERT(-1 <= bam->refID && bam->refID < (int)genome->getNumContigs());
@@ -589,7 +615,10 @@ BAMReader::getReadFromLine(
     }
 
     if (NULL != read) {
-        _ASSERT(bam->l_seq < MAX_SEQ_LENGTH);
+        if (bam->l_seq > MAX_SEQ_LENGTH) {
+            WriteErrorMessage("Truncated or corrupt BAM file near offset %lld\n", data->getFileOffset());
+            soft_exit(1);
+        }
 		char* seqBuffer = getExtra(bam->l_seq);
         char* qualBuffer = getExtra(bam->l_seq);
 
@@ -744,17 +773,14 @@ BAMFormat::getWriterSupplier(
         DataWriterSupplier::gzip(true, BAM_BLOCK, max(1, options->numThreads - 1), false, options->sortOutput);
         // (leave a thread free for main, and let OS map threads to cores to allow system IO etc.)
     if (options->sortOutput) {
-        size_t len = strlen(options->outputFile.fileName);
-        // todo: this is going to leak, but there's no easy way to free it, and it's small...
-        char* tempFileName = (char*) malloc(5 + len);
-        strcpy(tempFileName, options->outputFile.fileName);
-        strcpy(tempFileName + len, ".tmp");
+        char *tempFileName = DataWriterSupplier::generateSortIntermediateFilePathName(options);
         // todo: make markDuplicates optional?
         DataWriter::FilterSupplier* filters = gzipSupplier;
         if (! options->noDuplicateMarking) {
             filters = DataWriterSupplier::markDuplicates(genome)->compose(filters);
         }
         if (! options->noIndex) {
+            size_t len = strlen(options->outputFile.fileName);
             char* indexFileName = (char*) malloc(5 + len);
             strcpy(indexFileName, options->outputFile.fileName);
             strcpy(indexFileName + len, ".bai");
@@ -767,7 +793,7 @@ BAMFormat::getWriterSupplier(
     } else {
         dataSupplier = DataWriterSupplier::create(options->outputFile.fileName, options->writeBufferSize, gzipSupplier);
     }
-    return ReadWriterSupplier::create(this, dataSupplier, genome);
+    return ReadWriterSupplier::create(this, dataSupplier, genome, options->killIfTooSlow);
 }
 
     bool
@@ -1142,7 +1168,10 @@ BAMFilter::onNextBatch(
     size_t bytes)
 {
     bool ok = writer->getBatch(-1, &currentBuffer, NULL, NULL, NULL, &currentBufferBytes, &currentOffset);
-    _ASSERT(ok);
+    if (!ok) {
+        WriteErrorMessage("Error writing to output file\n");
+        soft_exit(1);
+    }
     currentWriter = writer;
     int index = 0;
     for (VariableSizeVector<size_t>::iterator i = offsets.begin(); i != offsets.end(); i++) {
@@ -1247,7 +1276,7 @@ struct DuplicateReadKey
     DuplicateReadKey()
     { memset(this, 0, sizeof(DuplicateReadKey)); }
 
-    DuplicateReadKey(const BAMAlignment* bam, const Genome* genome)
+    DuplicateReadKey(const BAMAlignment* bam, const Genome *genome)
     {
         if (bam == NULL) {
             locations[0] = locations[1] = UINT32_MAX;
