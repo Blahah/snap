@@ -932,11 +932,11 @@ SAMFormat::getWriterSupplier(
     DataWriterSupplier* dataSupplier;
     if (options->sortOutput) {
         dataSupplier = DataWriterSupplier::sorted(this, genome, DataWriterSupplier::generateSortIntermediateFilePathName(options), options->sortMemory * (1ULL << 30),
-            options->numThreads, options->outputFile.fileName, NULL, options->writeBufferSize);
+            options->numThreads, options->outputFile.fileName, NULL, options->writeBufferSize, options->emitInternalScore, options->internalScoreTag);
     } else {
-        dataSupplier = DataWriterSupplier::create(options->outputFile.fileName, options->writeBufferSize);
+        dataSupplier = DataWriterSupplier::create(options->outputFile.fileName, options->writeBufferSize, options->emitInternalScore, options->internalScoreTag);
     }
-    return ReadWriterSupplier::create(this, dataSupplier, genome, options->killIfTooSlow);
+    return ReadWriterSupplier::create(this, dataSupplier, genome, options->killIfTooSlow, options->emitInternalScore, options->internalScoreTag, options->ignoreAlignmentAdjustmentsForOm);
 }
 
     bool
@@ -1231,6 +1231,9 @@ SAMFormat::writeRead(
     Direction direction,
     bool secondaryAlignment,
     int * o_addFrontClipping,
+    int internalScore,
+    bool emitInternalScore,
+    char *internalScoreTag,
     bool hasMate,
     bool firstInPair,
     Read * mate, 
@@ -1353,7 +1356,18 @@ SAMFormat::writeRead(
             readGroupString = read->getReadGroup();
         }
     }
-    int charsInString = snprintf(buffer, bufferSpace, "%.*s\t%d\t%s\t%u\t%d\t%s\t%s\t%u\t%lld\t%.*s\t%.*s%s%.*s%s%s\tPG:Z:SNAP%s%.*s\n",
+    const int internalScoreBufferSize = 100;    // Should be plenty for \tXX:i:%d
+    char internalScoreBuffer[internalScoreBufferSize];
+    if (emitInternalScore) {
+        int charsInInternalScore = snprintf(internalScoreBuffer, internalScoreBufferSize - 1, "\t%s:i:%d", internalScoreTag, (flags & SAM_UNMAPPED) ? -1 : internalScore);
+        if (charsInInternalScore >= internalScoreBufferSize) {
+            WriteErrorMessage("SAMFormat::writeRead overran internal buffer for internal score tag, which is kind of surprising.  %d\n", charsInInternalScore);
+        }
+    } else {
+        internalScoreBuffer[0] = '\0';
+    }
+
+    int charsInString = snprintf(buffer, bufferSpace, "%.*s\t%d\t%s\t%u\t%d\t%s\t%s\t%u\t%lld\t%.*s\t%.*s%s%.*s%s%s\tPG:Z:SNAP%s%.*s%s\n",
         qnameLen, read->getId(),
         flags,
         contigName,
@@ -1367,7 +1381,8 @@ SAMFormat::writeRead(
         fullLength, quality,
         aux != NULL ? "\t" : "", auxLen, aux != NULL ? aux : "",
         readGroupSeparator, readGroupString,
-        nmString, rglineAuxLen, rglineAux);
+        nmString, rglineAuxLen, rglineAux,
+        internalScoreBuffer);
 
     if (charsInString > bufferSpace) {
         //
@@ -1413,7 +1428,6 @@ SAMFormat::computeCigar(
 
     int netIndel;
     *o_extraBasesClippedAfter = 0;
-
 
     //
     // Apply the extra clipping.
@@ -1476,7 +1490,6 @@ SAMFormat::computeCigar(
     GenomeDistance newExtraBasesClippedAfter = __max(0, genomeLocation + dataLength + netIndel - (contig->beginningLocation + contig->length - genome->getChromosomePadding()));
     for (GenomeDistance pass = 0; pass < dataLength; pass++) {
         if (newExtraBasesClippedAfter == *o_extraBasesClippedAfter) {
-            *o_extraBasesClippedAfter = newExtraBasesClippedAfter;
             return;
         }
 
@@ -1586,7 +1599,7 @@ SAMFormat::validateCigarString(
 	GenomeDistance offsetInData = 0;
 	const char *reference = genome->getSubstring(genomeLocation, dataLength);
 	if (NULL == reference) {
-		WriteErrorMessage("validateCigarString: couldn't look up genome data for location %lld\n", genomeLocation);
+		WriteErrorMessage("validateCigarString: couldn't look up genome data for location %lld\n", genomeLocation.location);
 		soft_exit(1);
 	}
 	GenomeDistance offsetInReference = 0;

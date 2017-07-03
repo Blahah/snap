@@ -13,7 +13,7 @@ Authors:
     Ravi Pandya, May, 2012
 
 Environment:
-`
+
     User mode service.
 
 Revision History:
@@ -114,6 +114,7 @@ public:
     bool                                 noUkkonen;
     bool                                 noOrderedEvaluation;
 	bool								 noTruncation;
+    bool                                 ignoreAlignmentAdjustmentForOm;
     int                                  maxSecondaryAlignmentAdditionalEditDistance;
 	int									 maxSecondaryAlignments;
     int                                  maxSecondaryAlignmentsPerContig;
